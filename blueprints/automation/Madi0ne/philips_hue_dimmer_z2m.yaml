@@ -1,0 +1,340 @@
+blueprint:
+  name: Philips Hue Dimmer (Multi-Press + Long-Press) - Z2M
+  description: >
+    Handles single/double/triple press and long press for ON, OFF, UP, and DOWN buttons
+    of a Philips Hue Dimmer switch (324131092621) via Zigbee2MQTT. Triggers actions on *_press_release to distinguish between short and long presses.
+  domain: automation
+  input:
+    mqtt_action_topic:
+      name: MQTT Action Topic
+      description: Zigbee2MQTT action topic (e.g., zigbee2mqtt/<device name>/action)
+      selector:
+        text:
+
+    press_counter:
+      name: Press Counter (input_number)
+      description: Helper input_number to track press counts
+      selector:
+        entity:
+          domain: input_number
+
+    press_state:
+      name: Press State (input_text)
+      description: Helper input_text to store current press state (hold/waiting/idle)
+      selector:
+        entity:
+          domain: input_text
+
+    multi_press_delay:
+      name: Multi-press Detection Delay (ms)
+      description: Delay window to count double/triple presses (default 500ms)
+      default: 500
+      selector:
+        number:
+          min: 100
+          max: 1500
+          step: 100
+          unit_of_measurement: milliseconds
+          mode: slider
+
+    # ON BUTTON
+    on_press_1:
+      name: ON - Short Single Press
+      description: Action for 1x short press on ON button
+      default: []
+      selector:
+        action: {}
+    on_press_2:
+      name: ON - Short Double Press
+      description: Action for 2x short press on ON button
+      default: []
+      selector:
+        action: {}
+    on_press_3:
+      name: ON - Short Triple Press
+      description: Action for 3x short press on ON button
+      default: []
+      selector:
+        action: {}
+    on_hold:
+      name: ON - Long Press
+      description: Action for long press on ON button
+      default: []
+      selector:
+        action: {}
+
+    # UP BUTTON
+    up_press_1:
+      name: UP - Short Single Press
+      description: Action for 1x short press on UP button
+      default: []
+      selector:
+        action: {}
+    up_press_2:
+      name: UP - Short Double Press
+      description: Action for 2x short press on UP button
+      default: []
+      selector:
+        action: {}
+    up_press_3:
+      name: UP - Short Triple Press
+      description: Action for 3x short press on UP button
+      default: []
+      selector:
+        action: {}
+    up_hold:
+      name: UP - Long Press
+      description: Action for long press on UP button
+      default: []
+      selector:
+        action: {}
+
+    # DOWN BUTTON
+    down_press_1:
+      name: DOWN - Short Single Press
+      description: Action for 1x short press on DOWN button
+      default: []
+      selector:
+        action: {}
+    down_press_2:
+      name: DOWN - Short Double Press
+      description: Action for 2x short press on DOWN button
+      default: []
+      selector:
+        action: {}
+    down_press_3:
+      name: DOWN - Short Triple Press
+      description: Action for 3x short press on DOWN button
+      default: []
+      selector:
+        action: {}
+    down_hold:
+      name: DOWN - Long Press
+      description: Action for long press on DOWN button
+      default: []
+      selector:
+        action: {}
+
+    # OFF BUTTON
+    off_press_1:
+      name: OFF - Short Single Press
+      description: Action for 1x short press on OFF button
+      default: []
+      selector:
+        action: {}
+    off_press_2:
+      name: OFF - Short Double Press
+      description: Action for 2x short press on OFF button
+      default: []
+      selector:
+        action: {}
+    off_press_3:
+      name: OFF - Short Triple Press
+      description: Action for 3x short press on OFF button
+      default: []
+      selector:
+        action: {}
+    off_hold:
+      name: OFF - Long Press
+      description: Action for long press on OFF button
+      default: []
+      selector:
+        action: {}
+
+mode: single
+
+trigger:
+  - platform: mqtt
+    topic: !input mqtt_action_topic
+
+variables:
+  mqtt_action_topic_val: !input mqtt_action_topic
+  multi_press_delay_val: !input multi_press_delay
+  press_counter_id: !input press_counter
+  press_state_id: !input press_state
+  payload: "{{ trigger.payload | default('') }}"
+  current_button: >
+    {% if payload.endswith('_press_release') %}
+      {{ payload.replace('_press_release', '') }}
+    {% elif payload.endswith('_hold_release') %}
+      {{ payload.replace('_hold_release', '') }}
+    {% elif payload.endswith('_press') %}
+      {{ payload.replace('_press', '') }}
+    {% elif payload.endswith('_hold') %}
+      {{ payload.replace('_hold', '') }}
+    {% else %}
+      unknown
+    {% endif %}
+  press_type: "{{ payload }}"
+  delay_secs: "{{ (multi_press_delay_val | int) / 1000 }}"
+
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ press_type.endswith('_hold') }}"
+        sequence:
+          - service: input_text.set_value
+            target:
+              entity_id: "{{ press_state_id }}"
+            data:
+              value: hold
+
+      - conditions:
+          - condition: template
+            value_template: "{{ press_type.endswith('_hold_release') }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ states(press_state_id) == 'hold' }}"
+                sequence:
+                  - service: input_text.set_value
+                    target:
+                      entity_id: "{{ press_state_id }}"
+                    data:
+                      value: idle
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_button == 'on' }}"
+                        sequence: !input on_hold
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_button == 'off' }}"
+                        sequence: !input off_hold
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_button == 'up' }}"
+                        sequence: !input up_hold
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_button == 'down' }}"
+                        sequence: !input down_hold
+
+      - conditions:
+          - condition: template
+            value_template: "{{ press_type.endswith('_press_release') }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ states(press_state_id) == 'hold' }}"
+                sequence:
+                  - stop: Ignore press release after hold
+
+          - service: input_text.set_value
+            target:
+              entity_id: "{{ press_state_id }}"
+            data:
+              value: waiting
+
+          - service: input_number.set_value
+            target:
+              entity_id: "{{ press_counter_id }}"
+            data:
+              value: 1
+
+          - wait_for_trigger:
+              - platform: mqtt
+                topic: "{{ mqtt_action_topic_val }}"
+                payload: "{{ press_type }}"
+            timeout: "{{ delay_secs }}"
+            continue_on_timeout: true
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ wait.trigger is not none }}"
+                sequence:
+                  - service: input_number.set_value
+                    target:
+                      entity_id: "{{ press_counter_id }}"
+                    data:
+                      value: 2
+                  - wait_for_trigger:
+                      - platform: mqtt
+                        topic: "{{ mqtt_action_topic_val }}"
+                        payload: "{{ press_type }}"
+                    timeout: "{{ delay_secs }}"
+                    continue_on_timeout: true
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ wait.trigger is not none }}"
+                        sequence:
+                          - service: input_number.set_value
+                            target:
+                              entity_id: "{{ press_counter_id }}"
+                            data:
+                              value: 3
+
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ states(press_state_id) == 'waiting' }}"
+                sequence:
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_button == 'on' and states(press_counter_id) | int == 1 }}"
+                        sequence: !input on_press_1
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_button == 'on' and states(press_counter_id) | int == 2 }}"
+                        sequence: !input on_press_2
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_button == 'on' and states(press_counter_id) | int == 3 }}"
+                        sequence: !input on_press_3
+
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_button == 'up' and states(press_counter_id) | int == 1 }}"
+                        sequence: !input up_press_1
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_button == 'up' and states(press_counter_id) | int == 2 }}"
+                        sequence: !input up_press_2
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_button == 'up' and states(press_counter_id) | int == 3 }}"
+                        sequence: !input up_press_3
+
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_button == 'down' and states(press_counter_id) | int == 1 }}"
+                        sequence: !input down_press_1
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_button == 'down' and states(press_counter_id) | int == 2 }}"
+                        sequence: !input down_press_2
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_button == 'down' and states(press_counter_id) | int == 3 }}"
+                        sequence: !input down_press_3
+
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_button == 'off' and states(press_counter_id) | int == 1 }}"
+                        sequence: !input off_press_1
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_button == 'off' and states(press_counter_id) | int == 2 }}"
+                        sequence: !input off_press_2
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_button == 'off' and states(press_counter_id) | int == 3 }}"
+                        sequence: !input off_press_3
+
+                  - service: input_text.set_value
+                    target:
+                      entity_id: "{{ press_state_id }}"
+                    data:
+                      value: idle
+
+  - service: input_number.set_value
+    target:
+      entity_id: "{{ press_counter_id }}"
+    data:
+      value: 0
